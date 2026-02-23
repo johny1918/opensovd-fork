@@ -20,8 +20,17 @@ path = "systemd/systemd.rs"
 name = "auth"
 path = "auth/auth.rs"
 
+[[example]]
+name = "gateway"
+path = "gateway/gateway.rs"
+
 [dependencies]
 async-trait = { workspace = true }
+futures = { workspace = true, features = ["std"] }
+mdns-sd = { workspace = true }
+mock_dfm = { path = "../mock_dfm" }
+opensovd-client = { workspace = true }
+serde_json = { workspace = true }
 jsonwebtoken = { workspace = true }
 libcli = { workspace = true }
 opensovd-core = { workspace = true }

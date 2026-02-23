@@ -1,0 +1,6 @@
+[package]
+name = "mock_dfm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "In-memory mock of fault-lib / DFM for testing sovd-server without IPC"

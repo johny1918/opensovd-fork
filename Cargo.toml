@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [workspace]
-members = ["benches", "examples/client", "examples/server", "opensovd-mocks", "opensovd-client", "opensovd-core", "opensovd-extra", "opensovd-models", "opensovd-providers", "opensovd-server", "opensovd-cli/lib", "opensovd-cli/gateway", "opensovd-cli/mcp"]
+members = ["benches", "examples/client", "examples/server",  "examples/mock_dfm","opensovd-mocks", "opensovd-client", "opensovd-core", "opensovd-extra", "opensovd-models", "opensovd-providers", "opensovd-server", "opensovd-cli/lib", "opensovd-cli/gateway", "opensovd-cli/mcp"]
 resolver = "2"
 
 [workspace.package]
@@ -35,6 +35,7 @@ bytes = { version = "1", default-features = false }
 chrono = { version = "0.4", default-features = false }
 clap = { version = "4", default-features = false }
 criterion = { version = "0.8", default-features = false }
+mdns-sd = { version = "0.11", default-features = false }
 futures = { version = "0.3", default-features = false }
 futures-core = { version = "0.3", default-features = false }
 indexmap = { version = "2", default-features = false, features = ["std"] }
