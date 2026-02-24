@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod error;
 pub mod types;
 pub mod version;
+pub mod faults;
 
 pub use error::{ErrorCode, GenericError};
 use serde::{Deserialize, Serialize};

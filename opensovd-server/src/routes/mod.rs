@@ -24,6 +24,7 @@ mod data;
 mod entities;
 mod error;
 mod version;
+mod faults;
 
 use axum::{Router, extract::FromRef, http::request::Parts};
 use http::header::HOST;
@@ -75,7 +76,8 @@ where
 
     let v1_routes = Router::new()
         .merge(entities::routes::<V>())
-        .merge(data::routes::<V>());
+        .merge(data::routes::<V>())
+        .merge(faults::routes::<V>());
 
     let router = Router::new()
         .nest(&format!("/{API_VERSION}"), v1_routes)
