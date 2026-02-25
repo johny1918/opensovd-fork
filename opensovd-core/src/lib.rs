@@ -8,6 +8,7 @@
 mod data;
 mod discovery;
 mod entity;
+mod faults;
 mod topology;
 
 pub use data::{
@@ -15,4 +16,5 @@ pub use data::{
 };
 pub use discovery::{DiscoveryError, DiscoveryProvider, DiscoveryStream};
 pub use entity::{App, Area, Component, EntityCollection, EntityKind, EntityRef};
+pub use faults::{FaultError, FaultFilter, FaultInfo, FaultProvider, FaultResult};
 pub use topology::{Topology, TopologyError, TopologyEvent, TopologyReadGuard, TopologyWriteGuard};

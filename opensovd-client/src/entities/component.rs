@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use opensovd_models::data::{DataCategories, DataGroups};
-use opensovd_models::discovery::Entities;
+use opensovd_models::discovery::{Entities, EntityCapabilities};
 
 use crate::client::{Client, encode};
 use crate::data::{DataRequest, ListDataRequest};
@@ -45,6 +45,13 @@ impl Component<'_> {
     pub async fn data_groups(&self) -> Result<DataGroups> {
         self.client
             .get(&format!("/components/{}/data-groups", self.id), &[])
+            .await
+    }
+
+    /// Fetch the capabilities advertised by this component.
+    pub async fn capabilities(&self) -> Result<EntityCapabilities> {
+        self.client
+            .get(&format!("/components/{}", self.id), &[])
             .await
     }
 

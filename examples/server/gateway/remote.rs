@@ -1,17 +1,23 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 Contributors to the Eclipse Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use opensovd_client::Client;
 use opensovd_core::{
     App, Component, Data, DataError, DataFilter, DataProvider, DiscoveryError, EntityCollection,
-    Metadata,
+    FaultError, FaultFilter, FaultInfo, FaultProvider, FaultResult, Metadata,
 };
+use opensovd_models::Items;
 use opensovd_models::data::DataList;
+use opensovd_models::discovery::EntityCapabilities;
+use opensovd_models::faults::{Fault, FaultResponse};
 
-// proxies data ops to the originating slave over HTTP
+// ─── RemoteDataProvider ──────────────────────────────────────────────────────
+
+// Proxies data operations to the originating slave over HTTP.
 pub(crate) struct RemoteDataProvider {
     pub(crate) client: Arc<Client>,
     entity_id: String,
@@ -95,7 +101,122 @@ impl DataProvider for RemoteDataProvider {
     }
 }
 
-// pulls components, apps and areas from a slave and wraps each with a RemoteDataProvider
+
+// Proxies fault operations to the originating slave over HTTP.
+pub(crate) struct RemoteFaultProvider {
+    client: Arc<Client>,
+    entity_id: String,
+}
+
+impl RemoteFaultProvider {
+    pub(crate) fn for_component(client: Arc<Client>, entity_id: impl Into<String>) -> Self {
+        Self { client, entity_id: entity_id.into() }
+    }
+}
+
+// Converts an opensovd-models `Fault` (bool status fields) into a `FaultInfo`
+// (HashMap status flags in "0"/"1" encoding expected by the core trait).
+fn fault_model_to_info(f: Fault) -> FaultInfo {
+    FaultInfo {
+        code: f.code,
+        display_code: f.display_code,
+        scope: f.scope,
+        fault_name: f.fault_name,
+        severity: f.severity,
+        status: f.status.map(|s| {
+            let mut map = HashMap::new();
+            for (key, val) in [
+                ("testFailed", s.test_failed),
+                ("testFailedThisOperationCycle", s.test_failed_this_operation_cycle),
+                ("pendingDTC", s.pending_dtc),
+                ("confirmedDTC", s.confirmed_dtc),
+                ("testNotCompletedSinceLastClear", s.test_not_completed_since_last_clear),
+                ("testFailedSinceLastClear", s.test_failed_since_last_clear),
+                ("testNotCompletedThisOperationCycle", s.test_not_completed_this_operation_cycle),
+                ("warningIndicatorRequested", s.warning_indicator_requested),
+            ] {
+                if let Some(v) = val {
+                    map.insert(key.to_string(), if v { "1" } else { "0" }.to_string());
+                }
+            }
+            map
+        }),
+    }
+}
+
+#[async_trait]
+impl FaultProvider for RemoteFaultProvider {
+    async fn list(&self, filter: FaultFilter) -> FaultResult<Vec<FaultInfo>> {
+        let severity_str = filter.severity.map(|s| s.to_string());
+        let mut query: Vec<(&str, &str)> = Vec::new();
+        if let Some(ref s) = severity_str {
+            query.push(("severity", s.as_str()));
+        }
+        if let Some(ref sc) = filter.scope {
+            query.push(("scope", sc.as_str()));
+        }
+
+        let items: Items<Fault> = self
+            .client
+            .get(&format!("/components/{}/faults", self.entity_id), &query)
+            .await
+            .map_err(|e| FaultError::Internal(e.to_string()))?;
+
+        let infos: Vec<FaultInfo> = items.items.into_iter().map(fault_model_to_info).collect();
+
+        // The status filter cannot easily be encoded as a nested query param;
+        // apply it client-side instead.
+        if let Some(status_key) = &filter.status {
+            Ok(infos
+                .into_iter()
+                .filter(|f| {
+                    f.status
+                        .as_ref()
+                        .and_then(|s| s.get(status_key.as_str()))
+                        .map(|v| v == "1")
+                        .unwrap_or(false)
+                })
+                .collect())
+        } else {
+            Ok(infos)
+        }
+    }
+
+    async fn get(&self, fault_code: &str) -> FaultResult<FaultInfo> {
+        let response: FaultResponse = self
+            .client
+            .get(
+                &format!("/components/{}/faults/{}", self.entity_id, fault_code),
+                &[],
+            )
+            .await
+            .map_err(|e| FaultError::Internal(e.to_string()))?;
+
+        Ok(fault_model_to_info(response.items))
+    }
+
+    async fn clear_all(&self, scope: Option<&str>) -> FaultResult<()> {
+        let query: Vec<(&str, &str)> = scope.into_iter().map(|s| ("scope", s)).collect();
+        self.client
+            .delete(&format!("/components/{}/faults", self.entity_id), &query)
+            .await
+            .map_err(|e| FaultError::Internal(e.to_string()))
+    }
+
+    async fn clear(&self, fault_code: &str) -> FaultResult<()> {
+        self.client
+            .delete(
+                &format!("/components/{}/faults/{}", self.entity_id, fault_code),
+                &[],
+            )
+            .await
+            .map_err(|e| FaultError::Internal(e.to_string()))
+    }
+}
+
+
+
+// Pulls components, apps and areas from a slave.
 pub(crate) async fn fetch_entities_from_slave(
     client: &Arc<Client>,
     label: &str,
@@ -118,16 +239,39 @@ pub(crate) async fn fetch_entities_from_slave(
         .await
         .map_err(|e| DiscoveryError::Transport(e.to_string()))?;
 
-    let components: Vec<Component> = raw_components
-        .data
-        .items
-        .into_iter()
-        .map(|item| {
-            tracing::info!("[{}] component '{}'", label, item.id);
-            let provider = RemoteDataProvider::for_component(Arc::clone(client), &item.id);
-            Component::new(&item.id, &item.name).with_data_provider(provider)
-        })
-        .collect();
+    let mut components: Vec<Component> = Vec::new();
+    for item in raw_components.data.items {
+        tracing::info!("[{}] component '{}'", label, item.id);
+
+        let caps = client
+            .component(&item.id)
+            .capabilities()
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "[{label}] capabilities fetch failed for '{}': {e}",
+                    item.id
+                );
+                EntityCapabilities::default()
+            });
+
+        let mut comp = Component::new(&item.id, &item.name);
+
+        if caps.data.is_some() {
+            comp = comp.with_data_provider(RemoteDataProvider::for_component(
+                Arc::clone(client),
+                &item.id,
+            ));
+        }
+        if caps.faults.is_some() {
+            comp = comp.with_fault_provider(RemoteFaultProvider::for_component(
+                Arc::clone(client),
+                &item.id,
+            ));
+        }
+
+        components.push(comp);
+    }
 
     let apps: Vec<App> = raw_apps
         .data

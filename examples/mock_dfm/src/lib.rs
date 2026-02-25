@@ -103,6 +103,20 @@ impl MockSovdFaultManager {
             .insert(fault.code.clone(), (fault, env));
     }
 
+    /// Remove a single fault by code under `path`. No-op if not found.
+    pub fn remove_fault(&mut self, path: &str, fault_code: &str) {
+        if let Some(map) = self.data.get_mut(path) {
+            map.remove(fault_code);
+        }
+    }
+
+    /// Clear all faults under `path`. No-op if the path is unknown.
+    pub fn clear_faults(&mut self, path: &str) {
+        if let Some(map) = self.data.get_mut(path) {
+            map.clear();
+        }
+    }
+
     fn load_samples(&mut self) {
         // ── HVAC ─────────────────────────────────────────────────────────────
         self.add(

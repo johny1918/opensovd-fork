@@ -87,13 +87,18 @@ pub(super) async fn component_capabilities(
     let translation_id = entity.translation_id().map(String::from);
 
     let base = super::super::versioned_uri(&parts);
-    let hosts = Some(
-        format!(
-            "{base}/components/{}/hosts",
-            encode_path_segment(&component_id)
-        )
-        .into(),
-    );
+
+    let hosts = topo
+        .apps_of_component(&component_id)
+        .next()
+        .is_some()
+        .then(|| {
+            format!(
+                "{base}/components/{}/hosts",
+                encode_path_segment(&component_id)
+            )
+            .into()
+        });
 
     let belongs_to = entity.area_id().map(|_| {
         format!(
@@ -111,6 +116,14 @@ pub(super) async fn component_capabilities(
         .into()
     });
 
+    let faults = entity.fault_provider().map(|_| {
+        format!(
+            "{base}/components/{}/faults",
+            encode_path_segment(&component_id)
+        )
+        .into()
+    });
+
     Ok(Json(Response {
         data: EntityCapabilities {
             id: component_id,
@@ -120,6 +133,7 @@ pub(super) async fn component_capabilities(
             hosts,
             belongs_to,
             data,
+            faults,
             ..Default::default()
         },
         schema: query.include_schema.then(EntityCapabilities::schema),

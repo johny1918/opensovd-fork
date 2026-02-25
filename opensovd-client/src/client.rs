@@ -226,6 +226,17 @@ impl Client {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
+    /// DELETE the resource at `path` (relative to the base URI) with optional query parameters.
+    pub async fn delete(&self, path: &str, query: &[(&str, &str)]) -> Result<()> {
+        let uri = build_uri_with_query(&self.base_uri, path, query)?;
+        let req = http::Request::builder()
+            .method(http::Method::DELETE)
+            .uri(&uri)
+            .body(Full::new(Bytes::new()))?;
+        self.request(req).await?;
+        Ok(())
+    }
+
     /// PUT a JSON body at `path` (relative to the base URI) with optional query parameters.
     pub async fn put(
         &self,

@@ -10,7 +10,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
-use opensovd_core::{DataError, TopologyError};
+use opensovd_core::{DataError, FaultError, TopologyError};
 use opensovd_models::{ErrorCode, GenericError};
 
 /// A `Result` alias where the `Err` variant is [`Error`].
@@ -25,6 +25,8 @@ pub enum Error {
     ProviderNotAvailable(String),
     #[error(transparent)]
     Data(#[from] DataError),
+    #[error(transparent)]
+    Fault(#[from] FaultError),
     #[error("{0}")]
     BadQuery(#[from] QueryRejection),
     #[error(transparent)]
@@ -48,6 +50,20 @@ impl IntoResponse for Error {
                     format!("Component has no {provider}"),
                 ),
             ),
+            Self::Fault(e) => {
+                let status = match e {
+                    FaultError::NotFound(_) => StatusCode::NOT_FOUND,
+                    FaultError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                let message = match e {
+                    FaultError::Internal(msg) => {
+                        tracing::error!(target: "srv", error = %msg, "Fault internal error");
+                        "An internal error occurred".to_string()
+                    }
+                    _ => e.to_string(),
+                };
+                (status, GenericError::new(ErrorCode::ErrorResponse, message))
+            }
             Self::Data(e) => {
                 let status = match e {
                     DataError::NotFound(_) => StatusCode::NOT_FOUND,

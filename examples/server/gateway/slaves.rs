@@ -1,14 +1,20 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 Contributors to the Eclipse Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use mdns_sd::{ServiceDaemon, ServiceInfo};
+use mock_dfm::{MockSovdFaultManager, SovdFault, dtc_status};
 use opensovd_core::{App, Component};
 use opensovd_models::data::DataCategory;
 use opensovd_providers::data::{Constant, DataProviderBuilder};
 use opensovd_server::{Server, Topology};
+use tokio::sync::Mutex;
 use tokio::{net::TcpListener, task::JoinHandle};
+
+use super::dfm::DfmFaultProvider;
 
 
 // figures out the local LAN IP without sending any packets
@@ -64,7 +70,7 @@ pub(crate) async fn spawn_slave(
     handle
 }
 
-// ECU with a handful of live data items and an engine control app
+// ECU with a handful of live data items, an engine control app, and ECU faults
 pub(crate) async fn ecu_topology() -> Topology {
     let provider = DataProviderBuilder::new()
         .read_data("voltage", "Battery Voltage", &DataCategory::CurrentData, Constant::new(12.6_f64).expect("constant"))
@@ -73,7 +79,51 @@ pub(crate) async fn ecu_topology() -> Topology {
         .build()
         .expect("ecu provider");
 
-    let ecu = Component::new("ecu", "Engine Control Unit").with_data_provider(provider);
+    let mut ecu_mgr = MockSovdFaultManager::new();
+    ecu_mgr.add(
+        "ecu",
+        SovdFault {
+            code: "LOW_BATTERY_VOLTAGE".into(),
+            display_code: "LOW_BATTERY_VOLTAGE".into(),
+            scope: "ecu".into(),
+            fault_name: "Low Battery Voltage".into(),
+            fault_translation_id: String::new(),
+            severity: 4, // Error
+            status: dtc_status(true, true, true, false, false, false, true, false),
+        },
+        HashMap::from([("voltage_v".into(), "11.2".into())]),
+    );
+    ecu_mgr.add(
+        "ecu",
+        SovdFault {
+            code: "ENGINE_OVERTEMP".into(),
+            display_code: "ENGINE_OVERTEMP".into(),
+            scope: "ecu".into(),
+            fault_name: "Engine Over-Temperature".into(),
+            fault_translation_id: String::new(),
+            severity: 5, // Fatal
+            status: dtc_status(false, false, true, true, false, false, false, false),
+        },
+        HashMap::new(),
+    );
+    ecu_mgr.add(
+        "ecu",
+        SovdFault {
+            code: "SENSOR_FAULT".into(),
+            display_code: "SENSOR_FAULT".into(),
+            scope: "ecu".into(),
+            fault_name: "Engine Sensor Fault".into(),
+            fault_translation_id: String::new(),
+            severity: 3, // Warn
+            status: dtc_status(true, false, true, false, true, true, false, false),
+        },
+        HashMap::from([("sensor_id".into(), "temp_1".into())]),
+    );
+    let ecu_dfm = Arc::new(Mutex::new(ecu_mgr));
+
+    let ecu = Component::new("ecu", "Engine Control Unit")
+        .with_data_provider(provider)
+        .with_fault_provider(DfmFaultProvider::new(ecu_dfm, "ecu"));
 
     let app_provider = DataProviderBuilder::new()
         .read_data("app.version", "App Version", &DataCategory::IdentData, Constant::new("1.0.0").expect("constant"))

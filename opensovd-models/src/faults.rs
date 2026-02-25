@@ -10,6 +10,7 @@ pub struct FaultQueryParams {
     // Scope fault entries retrival
     pub scope: Option<String>,
     // Specify if schema is provided or not
+    #[serde(default)]
     pub include_schema: bool,
 }
 
@@ -32,6 +33,7 @@ pub enum FaultStatusKeys {
     WarningIndicatorRequested,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FaultData {
     // Filters the available elements based on a key from status
     pub status: Option<StatusWrapper>,
