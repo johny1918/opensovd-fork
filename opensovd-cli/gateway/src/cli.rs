@@ -36,6 +36,9 @@ Examples:
 
   # Listen on an abstract Unix socket
   opensovd-gateway --unix-socket @opensovd
+
+  # Enable mDNS (register + discover)
+  opensovd-gateway --mdns --mdns-host 192.168.1.10
 ")]
 pub struct Cli {
     /// Server URL including base URI path (e.g., http://host:port/path).
@@ -68,6 +71,34 @@ pub struct Cli {
     /// Format: PATH:DIRECTORY (e.g., "/ui:./webui/dist")
     #[arg(long, help_heading = "Options")]
     pub serve_dir: Option<String>,
+
+    #[command(flatten)]
+    #[cfg(feature = "mdns")]
+    pub mdns: MdnsArgs,
+}
+
+#[cfg(feature = "mdns")]
+#[derive(Args)]
+#[command(next_help_heading = "mDNS Options")]
+pub struct MdnsArgs {
+    // Enable mDNS-SD: register this server and discover peers on the LAN.
+    #[arg(long = "mdns")]
+    pub enabled: bool,
+
+    // Instance name to advertise on mDNS.
+    #[arg(long = "mdns-name", value_name = "NAME", default_value = "opensovd")]
+    pub name: String,
+
+    // IP address to advertise on mDNS. Need when --url binds to 0.0.0.0.
+    #[arg(long = "mdns-host", value_name = "IP", env = "SOVD_MDNS_HOST")]
+    pub host: Option<std::net::IpAddr>,
+
+    /* 
+        VIN or device ID for the mDNS identification TXT record.
+        Defaults to --mdns-name if not set. 
+    */
+    #[arg(long = "mdns-identification", value_name = "ID", env = "SOVD_MDNS_ID")]
+    pub identification: Option<String>,
 }
 
 #[derive(Args)]

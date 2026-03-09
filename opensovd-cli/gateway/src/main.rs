@@ -7,6 +7,9 @@ mod cli;
 mod cors;
 mod serve_dir;
 
+#[cfg(feature = "mdns")]
+mod mdns;
+
 use std::process::ExitCode;
 
 use base64::Engine;
@@ -153,6 +156,29 @@ where
         tracing::info!(target: TARGET, path = %path, dir = %dir, "Serving static files");
     }
 
+    #[cfg(feature = "mdns")]
+    let _mdns_wrapper = if cli.mdns.enabled {
+        match parse_port(authority) {
+            Some(port) => match mdns::setup(&cli.mdns, parse_host(authority), port, base_uri) {
+                Ok((wrapper, provider)) => {
+                    tracing::info!(target: TARGET, "mDNS enabled");
+                    builder = builder.discovery(Box::new(provider));
+                    Some(wrapper)
+                }
+                Err(e) => {
+                    tracing::error!(target: TARGET, error = %e, "Failed to start mDNS");
+                    None
+                }
+            },
+            None => {
+                tracing::warn!(target: TARGET, "Cannot determine port for mDNS from --url");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let server = builder
         .layer(libcli::trace::trace_layer())
         .layer(tower::util::option_layer(cors))
@@ -241,4 +267,16 @@ fn notify_readiness() {
     if let Err(e) = sd_notify::notify(false, &[sd_notify::NotifyState::Ready]) {
         tracing::warn!(target: TARGET, error = %e, "Failed to notify systemd readiness");
     }
+}
+
+#[cfg(feature = "mdns")]
+fn parse_host(authority: &str) -> &str {
+    authority.rsplit_once(':').map_or(authority, |(host, _)| host)
+}
+
+#[cfg(feature = "mdns")]
+fn parse_port(authority: &str) -> Option<u16> {
+    authority
+        .rsplit_once(':')
+        .and_then(|(_, port)| port.parse().ok())
 }

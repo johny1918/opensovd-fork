@@ -20,8 +20,17 @@ path = "systemd/systemd.rs"
 name = "auth"
 path = "auth/auth.rs"
 
+[[example]]
+name = "mdns"
+path = "mdns/mdns.rs"
+required-features = ["mdns"]
+
+[features]
+mdns = ["opensovd-providers/mdns"]
+
 [dependencies]
 async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive", "std"] }
 jsonwebtoken = { workspace = true }
 libcli = { workspace = true }
 opensovd-core = { workspace = true }
