@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host_ip: IpAddr = args.addr.ip();
     let port = args.addr.port();
     let identification = args.identification.as_deref().unwrap_or(args.name.as_str());
-    let access_url = format!("http://{host_ip}:{port}/v1");
+    let access_url = format!("http://{host_ip}:{port}/sovd");
     wrapper.register(&args.name, identification, &access_url, host_ip, port)?;
 
     tracing::info!(name = %args.name, %identification, %access_url, "Registered on mDNS");
@@ -73,10 +73,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .topology(topology)
         .discovery(Box::new(provider))
         .layer(libcli::trace::trace_layer())
+        .base_uri("/sovd")?
         .build()?;
 
     tracing::info!(addr = %args.addr, "SOVD server started — browsing for peers");
-    tracing::info!("API: http://{}/v1", args.addr);
+    tracing::info!("API: http://{}/sovd/v1/components", args.addr);
 
     server.serve().await?;
 

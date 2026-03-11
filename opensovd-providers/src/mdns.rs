@@ -159,8 +159,8 @@ fn convert_event(event: ServiceEvent) -> Option<(Vec<EntityRef>, EntityCollectio
                         .iter()
                         .next()
                         .map_or_else(
-                            || format!("http://{name}:{port}/v1"),
-                            |ip| format!("http://{ip}:{port}/v1"),
+                            || format!("http://{name}:{port}/sovd"),
+                            |ip| format!("http://{ip}:{port}/sovd"),
                         )
                 });
 
