@@ -14,6 +14,11 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 
+// max number of TLS handshakes that can be made at the same time;
+const MAX_PENDING_HANDSHAKES: usize = 256;
+// how long to wait for a TLS handshake before dropping the connection
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Debug, thiserror::Error)]
 pub enum TlsConfigError {
     #[error("failed to read {path}: {source}")]
@@ -45,17 +50,24 @@ impl TlsConfig {
         }
     }
 
+    #[must_use]
     pub fn with_client_ca(mut self, ca: impl Into<PathBuf>) -> Self {
         self.client_cas.push(ca.into());
         self
     }
 
-    // true if mTLS is configured (client cert required)
+    // Returns true if mTLS is configured (client cert required).
+    #[must_use]
     pub fn has_client_ca(&self) -> bool {
         !self.client_cas.is_empty()
     }
 
-    // build a TlsListener from this config and give TCP listener
+    /// Builds a [`TlsListener`] from this config and the given TCP listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TlsConfigError`] if any certificate or key file cannot be read or parsed,
+    /// or if the TLS configuration is invalid.
     pub fn build(self, listener: TcpListener) -> Result<TlsListener, TlsConfigError> {
         let certs = load_certs(&self.cert)?;
         let key = load_key(&self.key)?;
@@ -78,10 +90,12 @@ impl TlsConfig {
                     root_store.add(cert).map_err(TlsConfigError::Rustls)?;
                 }
             }
-            let verifier =
-                WebPkiClientVerifier::builder_with_provider(Arc::new(root_store), Arc::clone(&provider))
-                    .build()
-                    .map_err(|e| TlsConfigError::Verifier(e.to_string()))?;
+            let verifier = WebPkiClientVerifier::builder_with_provider(
+                Arc::new(root_store),
+                Arc::clone(&provider),
+            )
+            .build()
+            .map_err(|e| TlsConfigError::Verifier(e.to_string()))?;
             ServerConfig::builder_with_provider(provider)
                 .with_safe_default_protocol_versions()
                 .map_err(TlsConfigError::Rustls)?
@@ -92,8 +106,14 @@ impl TlsConfig {
 
         let acceptor = TlsAcceptor::from(Arc::new(config));
         let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_PENDING_HANDSHAKES));
-        let (done_tx, done_rx) = tokio::sync::mpsc::unbounded_channel();
-        Ok(TlsListener { inner: listener, acceptor, semaphore, done_tx, done_rx })
+        let (done_tx, done_rx) = tokio::sync::mpsc::channel(MAX_PENDING_HANDSHAKES);
+        Ok(TlsListener {
+            inner: listener,
+            acceptor,
+            semaphore,
+            done_tx,
+            done_rx,
+        })
     }
 }
 
@@ -128,13 +148,10 @@ fn load_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsConfigError> {
         .ok_or_else(|| TlsConfigError::NoKey(path.display().to_string()))
 }
 
-// max number of TLS handshakes that can be made at the same time; 
-const MAX_PENDING_HANDSHAKES: usize = 256;
-
-/* 
+/*
     Wraps a TcpListener with TLS acceptance.
     Each TLS handshake runs in its own spawned task so a slow or stalling client
-    cannot block new TCP connections from being accepted. 
+    cannot block new TCP connections from being accepted.
 */
 pub struct TlsListener {
     inner: TcpListener,
@@ -142,8 +159,8 @@ pub struct TlsListener {
     // limits concurrent in-flight handshakes to MAX_PENDING_HANDSHAKES
     semaphore: Arc<tokio::sync::Semaphore>,
     // completed handshakes waiting to be returned to axum
-    done_tx: tokio::sync::mpsc::UnboundedSender<(TlsStream<tokio::net::TcpStream>, SocketAddr)>,
-    done_rx: tokio::sync::mpsc::UnboundedReceiver<(TlsStream<tokio::net::TcpStream>, SocketAddr)>,
+    done_tx: tokio::sync::mpsc::Sender<(TlsStream<tokio::net::TcpStream>, SocketAddr)>,
+    done_rx: tokio::sync::mpsc::Receiver<(TlsStream<tokio::net::TcpStream>, SocketAddr)>,
 }
 
 impl axum::serve::Listener for TlsListener {
@@ -157,6 +174,7 @@ impl axum::serve::Listener for TlsListener {
                 tcp = self.inner.accept() => {
                     match tcp {
                         Ok((stream, addr)) => {
+                            tracing::debug!(peer = %addr, "TCP connection accepted");
                             // try to grab a slot, if all 256 are taken, drop the connection
                             match Arc::clone(&self.semaphore).try_acquire_owned() {
                                 Ok(permit) => {
@@ -166,11 +184,14 @@ impl axum::serve::Listener for TlsListener {
                                         // permit is dropped when this task ends, freeing the slot
                                         let _permit = permit;
                                         let result = tokio::time::timeout(
-                                            Duration::from_secs(10),
+                                            TLS_HANDSHAKE_TIMEOUT,
                                             acceptor.accept(stream),
                                         ).await;
                                         match result {
-                                            Ok(Ok(tls)) => { let _ = tx.send((tls, addr)); }
+                                            Ok(Ok(tls)) => {
+                                                tracing::debug!(peer = %addr, "TLS handshake complete");
+                                                let _ = tx.send((tls, addr)).await;
+                                            }
                                             Ok(Err(e)) => tracing::warn!(peer = %addr, error = %e, "TLS handshake failed"),
                                             Err(_) => tracing::warn!(peer = %addr, "TLS handshake timed out"),
                                         }
@@ -215,8 +236,7 @@ mod tests {
 
     #[test]
     fn tls_config_with_client_ca() {
-        let cfg = TlsConfig::new("/tmp/cert.pem", "/tmp/key.pem")
-            .with_client_ca("/tmp/ca.crt");
+        let cfg = TlsConfig::new("/tmp/cert.pem", "/tmp/key.pem").with_client_ca("/tmp/ca.crt");
         assert!(cfg.has_client_ca());
     }
 

@@ -42,9 +42,4 @@ openssl x509 -req -days 365 -in client.csr -CA ca.crt -CAkey ca.key \
 
 rm -f server.csr client.csr ca.srl
 
-echo ""
-echo "Done! Test the server with:"
-echo "  curl --cacert $DIR/ca.crt \\"
-echo "       --cert   $DIR/client.crt \\"
-echo "       --key    $DIR/client.key \\"
-echo "       https://127.0.0.1:8443/sovd/v1/components"
+echo "Done!"

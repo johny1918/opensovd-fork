@@ -516,9 +516,7 @@ where
         if let Some(tls_cfg) = self.tls_config {
             return match self.listener {
                 Listener::Tcp(l) => {
-                    let tls_listener = tls_cfg
-                        .build(l)
-                        .map_err(std::io::Error::other)?;
+                    let tls_listener = tls_cfg.build(l).map_err(std::io::Error::other)?;
                     axum::serve(
                         tls_listener,
                         router.into_make_service_with_connect_info::<ConnectInfo>(),

@@ -111,7 +111,11 @@ pub struct TlsArgs {
     pub key: Option<std::path::PathBuf>,
 
     // one or more client CA cert files; when set, mTLS is enabled
-    #[arg(long = "tls-client-ca", value_name = "FILE", env = "SOVD_TLS_CLIENT_CA")]
+    #[arg(
+        long = "tls-client-ca",
+        value_name = "FILE",
+        env = "SOVD_TLS_CLIENT_CA"
+    )]
     pub client_ca: Vec<std::path::PathBuf>,
 
     // directory of CA certs; all *.crt and *.pem files inside are loaded
@@ -137,16 +141,17 @@ impl TlsArgs {
 
         if let Some(dir) = self.client_ca_dir {
             // walk the directory and add any .crt / .pem files
-            let entries = std::fs::read_dir(&dir)
-                .map_err(|e| anyhow::anyhow!("cannot read --tls-client-ca-dir {}: {e}", dir.display()))?;
+            let entries = std::fs::read_dir(&dir).map_err(|e| {
+                anyhow::anyhow!("cannot read --tls-client-ca-dir {}: {e}", dir.display())
+            })?;
             for entry in entries {
                 let path = entry
                     .map_err(|e| anyhow::anyhow!("directory read error: {e}"))?
                     .path();
-                if let Some(ext) = path.extension() {
-                    if ext == "crt" || ext == "pem" {
-                        cfg = cfg.with_client_ca(path);
-                    }
+                if let Some(ext) = path.extension()
+                    && (ext == "crt" || ext == "pem")
+                {
+                    cfg = cfg.with_client_ca(path);
                 }
             }
         }
