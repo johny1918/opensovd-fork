@@ -62,6 +62,7 @@ pub struct Cli {
     #[command(flatten)]
     pub tls: TlsArgs,
 
+
     /// Enable mock entities for testing and development.
     #[arg(help_heading = "Options")]
     #[cfg(feature = "mock")]
@@ -159,6 +160,7 @@ impl TlsArgs {
         Ok(Some(cfg))
     }
 }
+
 
 #[derive(Args)]
 #[command(next_help_heading = "Authentication & Authorization")]

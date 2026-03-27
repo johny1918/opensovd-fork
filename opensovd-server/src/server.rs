@@ -375,6 +375,7 @@ impl<Vendor, Authn, Authz, Layer> ServerBuilder<Vendor, Authn, Authz, Layer> {
         self
     }
 
+
     /// Builds the server.
     ///
     /// # Errors
@@ -531,6 +532,7 @@ where
                 )),
             };
         }
+
 
         match self.listener {
             Listener::Tcp(l) => {
